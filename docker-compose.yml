@@ -64,14 +64,11 @@ services:
 
   # Spark Master
   spark-master:
-    image: bitnami/spark:3.5.0
+    image: apache/spark:3.5.0
     container_name: spark-master
+    command: /opt/spark/bin/spark-class org.apache.spark.deploy.master.Master
     environment:
-      - SPARK_MODE=master
-      - SPARK_RPC_AUTHENTICATION_ENABLED=no
-      - SPARK_RPC_ENCRYPTION_ENABLED=no
-      - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
-      - SPARK_SSL_ENABLED=no
+      - SPARK_NO_DAEMONIZE=true
     ports:
       - "8080:8080"
       - "7077:7077"
@@ -83,16 +80,15 @@ services:
 
   # Spark Worker
   spark-worker:
-    image: bitnami/spark:3.5.0
+    image: apache/spark:3.5.0
     container_name: spark-worker
     depends_on:
       - spark-master
+    command: /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077
     environment:
-      - SPARK_MODE=worker
-      - SPARK_MASTER_URL=spark://spark-master:7077
+      - SPARK_NO_DAEMONIZE=true
       - SPARK_WORKER_MEMORY=2G
       - SPARK_WORKER_CORES=2
-      - SPARK_RPC_AUTHENTICATION_ENABLED=no
       - SPARK_RPC_ENCRYPTION_ENABLED=no
       - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
       - SPARK_SSL_ENABLED=no
@@ -124,7 +120,7 @@ services:
     image: prom/prometheus:v2.48.0
     container_name: prometheus
     ports:
-      - "9090:9090"
+      - "9091:9090"
     volumes:
       - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
       - prometheus_data:/prometheus
@@ -139,7 +135,7 @@ services:
     image: grafana/grafana:10.2.2
     container_name: grafana
     ports:
-      - "3000:3000"
+      - "3001:3000"
     environment:
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=admin

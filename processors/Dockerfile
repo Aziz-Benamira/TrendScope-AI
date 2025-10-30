@@ -1,8 +1,12 @@
-FROM bitnami/spark:3.5.0
-
-USER root
+FROM python:3.10
 
 WORKDIR /app
+
+# Install Java (required for PySpark)
+RUN apt-get update && \
+    apt-get install -y default-jre && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
 # Install Python packages
 COPY requirements.txt .
