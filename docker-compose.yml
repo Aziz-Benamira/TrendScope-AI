@@ -1,0 +1,253 @@
+version: '3.8'
+
+services:
+  # Zookeeper - Kafka dependency
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    volumes:
+      - zookeeper_data:/var/lib/zookeeper/data
+    networks:
+      - trendscope-network
+
+  # Kafka Broker
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    networks:
+      - trendscope-network
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+
+  # Cassandra Database
+  cassandra:
+    image: cassandra:4.1
+    container_name: cassandra
+    ports:
+      - "9042:9042"
+    environment:
+      CASSANDRA_CLUSTER_NAME: TrendScopeCluster
+      CASSANDRA_DC: datacenter1
+      CASSANDRA_ENDPOINT_SNITCH: GossipingPropertyFileSnitch
+    volumes:
+      - cassandra_data:/var/lib/cassandra
+    networks:
+      - trendscope-network
+    healthcheck:
+      test: ["CMD-SHELL", "cqlsh -e 'describe cluster'"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # Spark Master
+  spark-master:
+    image: bitnami/spark:3.5.0
+    container_name: spark-master
+    environment:
+      - SPARK_MODE=master
+      - SPARK_RPC_AUTHENTICATION_ENABLED=no
+      - SPARK_RPC_ENCRYPTION_ENABLED=no
+      - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
+      - SPARK_SSL_ENABLED=no
+    ports:
+      - "8080:8080"
+      - "7077:7077"
+    volumes:
+      - ./processors:/opt/spark-apps
+      - ./configs:/opt/spark-configs
+    networks:
+      - trendscope-network
+
+  # Spark Worker
+  spark-worker:
+    image: bitnami/spark:3.5.0
+    container_name: spark-worker
+    depends_on:
+      - spark-master
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_MASTER_URL=spark://spark-master:7077
+      - SPARK_WORKER_MEMORY=2G
+      - SPARK_WORKER_CORES=2
+      - SPARK_RPC_AUTHENTICATION_ENABLED=no
+      - SPARK_RPC_ENCRYPTION_ENABLED=no
+      - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
+      - SPARK_SSL_ENABLED=no
+    volumes:
+      - ./processors:/opt/spark-apps
+      - ./configs:/opt/spark-configs
+    networks:
+      - trendscope-network
+
+  # MLflow Server
+  mlflow:
+    build:
+      context: ./monitoring/mlflow
+      dockerfile: Dockerfile
+    container_name: mlflow
+    ports:
+      - "5000:5000"
+    environment:
+      - MLFLOW_BACKEND_STORE_URI=sqlite:///mlflow.db
+      - MLFLOW_DEFAULT_ARTIFACT_ROOT=/mlflow/artifacts
+    volumes:
+      - mlflow_data:/mlflow
+    networks:
+      - trendscope-network
+    command: mlflow server --host 0.0.0.0 --port 5000
+
+  # Prometheus
+  prometheus:
+    image: prom/prometheus:v2.48.0
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    networks:
+      - trendscope-network
+
+  # Grafana
+  grafana:
+    image: grafana/grafana:10.2.2
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_INSTALL_PLUGINS=grafana-clock-panel
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      - trendscope-network
+
+  # TMDB Producer
+  tmdb-producer:
+    build:
+      context: ./producers/tmdb
+      dockerfile: Dockerfile
+    container_name: tmdb-producer
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      - TMDB_API_KEY=${TMDB_API_KEY}
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - KAFKA_TOPIC=${KAFKA_TOPIC_TMDB}
+      - FETCH_INTERVAL=${TMDB_FETCH_INTERVAL}
+    volumes:
+      - ./producers/tmdb:/app
+    networks:
+      - trendscope-network
+    restart: unless-stopped
+
+  # Reddit Producer
+  reddit-producer:
+    build:
+      context: ./producers/reddit
+      dockerfile: Dockerfile
+    container_name: reddit-producer
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      - REDDIT_CLIENT_ID=${REDDIT_CLIENT_ID}
+      - REDDIT_CLIENT_SECRET=${REDDIT_CLIENT_SECRET}
+      - REDDIT_USER_AGENT=${REDDIT_USER_AGENT}
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - KAFKA_TOPIC=${KAFKA_TOPIC_REDDIT}
+      - FETCH_INTERVAL=${REDDIT_FETCH_INTERVAL}
+    volumes:
+      - ./producers/reddit:/app
+    networks:
+      - trendscope-network
+    restart: unless-stopped
+
+  # Spark Streaming Processor
+  spark-processor:
+    build:
+      context: ./processors
+      dockerfile: Dockerfile
+    container_name: spark-processor
+    depends_on:
+      - spark-master
+      - kafka
+      - cassandra
+    environment:
+      - SPARK_MASTER_URL=spark://spark-master:7077
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - CASSANDRA_HOST=cassandra
+      - CASSANDRA_KEYSPACE=${CASSANDRA_KEYSPACE}
+      - W1_POPULARITY=${W1_POPULARITY}
+      - W2_MENTIONS=${W2_MENTIONS}
+      - W3_SENTIMENT=${W3_SENTIMENT}
+    volumes:
+      - ./processors:/app
+    networks:
+      - trendscope-network
+    restart: unless-stopped
+
+  # River ML Service
+  ml-service:
+    build:
+      context: ./ml_service
+      dockerfile: Dockerfile
+    container_name: ml-service
+    depends_on:
+      - kafka
+      - mlflow
+      - cassandra
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+      - CASSANDRA_HOST=cassandra
+      - CASSANDRA_KEYSPACE=${CASSANDRA_KEYSPACE}
+    volumes:
+      - ./ml_service:/app
+    networks:
+      - trendscope-network
+    restart: unless-stopped
+
+networks:
+  trendscope-network:
+    driver: bridge
+
+volumes:
+  zookeeper_data:
+  kafka_data:
+  cassandra_data:
+  mlflow_data:
+  prometheus_data:
+  grafana_data:

@@ -1,0 +1,7 @@
+pyspark==3.5.0
+kafka-python==2.0.2
+cassandra-driver==3.28.0
+vaderSentiment==3.3.2
+textblob==0.17.1
+python-dotenv==1.0.0
+colorlog==6.8.0

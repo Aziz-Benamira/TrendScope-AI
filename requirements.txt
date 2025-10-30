@@ -1,0 +1,41 @@
+# Core Dependencies
+python-dotenv==1.0.0
+
+# Kafka & Streaming
+kafka-python==2.0.2
+confluent-kafka==2.3.0
+
+# API Clients
+requests==2.31.0
+praw==7.7.1
+
+# Data Processing
+pandas==2.1.4
+numpy==1.26.2
+
+# Spark (PySpark)
+pyspark==3.5.0
+
+# Sentiment Analysis
+vaderSentiment==3.3.2
+textblob==0.17.1
+
+# Online Machine Learning
+river==0.21.0
+
+# MLOps & Monitoring
+mlflow==2.9.2
+evidently==0.4.11
+prometheus-client==0.19.0
+
+# Database
+cassandra-driver==3.28.0
+
+# Utilities
+schedule==1.2.0
+pytz==2023.3
+colorlog==6.8.0
+
+# Testing
+pytest==7.4.3
+pytest-mock==3.12.0
