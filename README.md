@@ -9,7 +9,14 @@
 [![MLflow](https://img.shields.io/badge/MLflow-2.9.2-0194E2.svg)](https://mlflow.org/)
 
 ---
+![Platform UI Screenshot](./ReadME_images/ui1.png)
 
+
+
+
+
+
+![Platform UI Screenshot](./ReadME_images/ui2.png)
 ## 📋 Table of Contents
 
 - [Overview](#overview)
