@@ -1,0 +1,7 @@
+# RAG Service Dependencies
+sentence-transformers>=2.2.2
+chromadb>=0.4.22
+kafka-python>=2.0.2
+requests>=2.31.0
+colorlog>=6.8.0
+numpy>=1.24.0

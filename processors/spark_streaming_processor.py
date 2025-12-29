@@ -69,6 +69,9 @@ class SparkStreamingProcessor:
             .config("spark.cassandra.connection.port", self.cassandra_port) \
             .config("spark.sql.streaming.checkpointLocation", "/tmp/spark-checkpoint") \
             .config("spark.streaming.stopGracefullyOnShutdown", "true") \
+            .config("spark.executor.memory", "1g") \
+            .config("spark.driver.memory", "1g") \
+            .config("spark.cores.max", "2") \
             .getOrCreate()
         
         self.spark.sparkContext.setLogLevel("WARN")
@@ -261,23 +264,24 @@ class SparkStreamingProcessor:
         """Join TMDB and Reddit aggregates and compute TrendScore"""
         logger.info("Computing TrendScore...")
         
-        # Outer join to capture movies from both sources
+        # Inner join on exact window match (stream-stream inner join is supported)
+        # Movies without Reddit mentions will have mentions=0 from TMDB-only processing
         joined_df = tmdb_agg.alias("tmdb") \
             .join(
                 reddit_agg.alias("reddit"),
                 (col("tmdb.window_start") == col("reddit.window_start")) &
                 (col("tmdb.movie_title") == col("reddit.movie_title")),
-                "full_outer"
+                "inner"
             )
         
-        # Coalesce fields from both sides
+        # Select fields (tmdb is guaranteed, reddit may be null)
         joined_df = joined_df.select(
-            coalesce(col("tmdb.window_start"), col("reddit.window_start")).alias("window_start"),
-            coalesce(col("tmdb.window_end"), col("reddit.window_end")).alias("window_end"),
-            coalesce(col("tmdb.movie_title"), col("reddit.movie_title")).alias("movie_title"),
+            col("tmdb.window_start").alias("window_start"),
+            col("tmdb.window_end").alias("window_end"),
+            col("tmdb.movie_title").alias("movie_title"),
             col("tmdb.movie_id"),
-            coalesce(col("tmdb.avg_popularity"), lit(0.0)).alias("popularity"),
-            coalesce(col("tmdb.avg_vote"), lit(0.0)).alias("vote_average"),
+            col("tmdb.avg_popularity").alias("popularity"),
+            col("tmdb.avg_vote").alias("vote_average"),
             coalesce(col("reddit.mentions_count"), lit(0)).alias("mentions_count"),
             coalesce(col("reddit.avg_sentiment"), lit(0.0)).alias("avg_sentiment"),
             coalesce(col("reddit.avg_reddit_score"), lit(0.0)).alias("avg_reddit_score")

@@ -38,6 +38,15 @@ ENV/
 
 # Environment variables
 .env
+
+# Node.js dependencies
+web-dashboard/node_modules/
+
+# Large dataset files
+tmdb_dataset_files/*.tsv
+debug_output*.json
+chroma_data/
+__pycache__/
 .env.local
 
 # Docker

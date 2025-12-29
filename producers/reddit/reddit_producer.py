@@ -43,7 +43,8 @@ class RedditProducer:
         
         self.kafka_servers = os.getenv('KAFKA_BOOTSTRAP_SERVERS', 'localhost:9092')
         self.topic = os.getenv('KAFKA_TOPIC', 'reddit_stream')
-        self.subreddit_name = os.getenv('REDDIT_SUBREDDIT', 'movies')
+        # Support multiple subreddits - includes popular show subreddits
+        self.subreddit_name = os.getenv('REDDIT_SUBREDDIT', 'movies+television+StrangerThings+netflix+MarvelStudios+DC_Cinematic')
         
         self.reddit = None
         self.producer = None
@@ -117,6 +118,9 @@ class RedditProducer:
         text = comment.body
         movie_mentions = self.extract_movie_mentions(text)
         
+        # Get the actual subreddit name from the comment, not the multi-reddit string
+        actual_subreddit = str(comment.subreddit.display_name)
+        
         return {
             'comment_id': comment.id,
             'post_id': comment.submission.id,
@@ -126,7 +130,7 @@ class RedditProducer:
             'score': comment.score,
             'created_utc': datetime.fromtimestamp(comment.created_utc).isoformat(),
             'movie_mentions': movie_mentions,
-            'subreddit': self.subreddit_name,
+            'subreddit': actual_subreddit,
             'timestamp': datetime.utcnow().isoformat(),
             'source': 'reddit'
         }
@@ -135,6 +139,9 @@ class RedditProducer:
         """Transform Reddit post into required format"""
         text = f"{post.title} {post.selftext}"
         movie_mentions = self.extract_movie_mentions(text)
+        
+        # Get the actual subreddit name from the post, not the multi-reddit string
+        actual_subreddit = str(post.subreddit.display_name)
         
         return {
             'post_id': post.id,
@@ -146,7 +153,7 @@ class RedditProducer:
             'upvote_ratio': post.upvote_ratio,
             'created_utc': datetime.fromtimestamp(post.created_utc).isoformat(),
             'movie_mentions': movie_mentions,
-            'subreddit': self.subreddit_name,
+            'subreddit': actual_subreddit,
             'url': post.url,
             'timestamp': datetime.utcnow().isoformat(),
             'source': 'reddit',

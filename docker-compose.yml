@@ -66,7 +66,11 @@ services:
   spark-master:
     image: apache/spark:3.5.0
     container_name: spark-master
-    command: /opt/spark/bin/spark-class org.apache.spark.deploy.master.Master
+    command: >
+      bash -c "
+      pip install kafka-python==2.0.2 cassandra-driver==3.28.0 vaderSentiment==3.3.2 textblob==0.17.1 python-dotenv==1.0.0 colorlog==6.8.0 &&
+      /opt/spark/bin/spark-class org.apache.spark.deploy.master.Master
+      "
     environment:
       - SPARK_NO_DAEMONIZE=true
     ports:
@@ -75,6 +79,7 @@ services:
     volumes:
       - ./processors:/opt/spark-apps
       - ./configs:/opt/spark-configs
+      - ./.env:/opt/spark-apps/.env
     networks:
       - trendscope-network
 
@@ -84,7 +89,11 @@ services:
     container_name: spark-worker
     depends_on:
       - spark-master
-    command: /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077
+    command: >
+      bash -c "
+      pip install kafka-python==2.0.2 cassandra-driver==3.28.0 vaderSentiment==3.3.2 textblob==0.17.1 python-dotenv==1.0.0 colorlog==6.8.0 &&
+      /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077
+      "
     environment:
       - SPARK_NO_DAEMONIZE=true
       - SPARK_WORKER_MEMORY=2G
@@ -158,6 +167,8 @@ services:
     depends_on:
       kafka:
         condition: service_healthy
+      data-loader:
+        condition: service_completed_successfully
     environment:
       - TMDB_API_KEY=${TMDB_API_KEY}
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
@@ -165,6 +176,8 @@ services:
       - FETCH_INTERVAL=${TMDB_FETCH_INTERVAL}
     volumes:
       - ./producers/tmdb:/app
+      - ./data_loader:/app/data_loader
+      - ./tmdb_dataset_files:/data/imdb_datasets
     networks:
       - trendscope-network
     restart: unless-stopped
@@ -193,16 +206,24 @@ services:
 
   # Spark Streaming Processor
   spark-processor:
-    build:
-      context: ./processors
-      dockerfile: Dockerfile
+    image: apache/spark:3.5.0
     container_name: spark-processor
+    user: root
     depends_on:
       - spark-master
       - kafka
       - cassandra
+    command: >
+      bash -c "
+      pip install kafka-python==2.0.2 cassandra-driver==3.28.0 vaderSentiment==3.3.2 textblob==0.17.1 python-dotenv==1.0.0 colorlog==6.8.0 &&
+      mkdir -p /home/spark/.ivy2/cache &&
+      chown -R spark:spark /home/spark/.ivy2 &&
+      chmod -R 755 /home/spark/.ivy2 &&
+      sleep 20 &&
+      su -c '/opt/spark/bin/spark-submit --master local[2] --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0,com.datastax.spark:spark-cassandra-connector_2.12:3.4.1 --conf spark.cassandra.connection.host=cassandra --conf spark.cassandra.connection.port=9042 --conf spark.sql.streaming.checkpointLocation=/tmp/spark-checkpoint --conf spark.executor.memory=1g --conf spark.driver.memory=1g /opt/spark-apps/spark_streaming_processor.py' spark
+      "
     environment:
-      - SPARK_MASTER_URL=spark://spark-master:7077
+      - SPARK_MASTER_URL=local[*]
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
       - CASSANDRA_HOST=cassandra
       - CASSANDRA_KEYSPACE=${CASSANDRA_KEYSPACE}
@@ -210,7 +231,8 @@ services:
       - W2_MENTIONS=${W2_MENTIONS}
       - W3_SENTIMENT=${W3_SENTIMENT}
     volumes:
-      - ./processors:/app
+      - ./processors:/opt/spark-apps
+      - ./.env:/opt/spark-apps/.env
     networks:
       - trendscope-network
     restart: unless-stopped
@@ -236,6 +258,111 @@ services:
       - trendscope-network
     restart: unless-stopped
 
+  # IMDb Data Loader
+  data-loader:
+    build:
+      context: ./data_loader
+      dockerfile: Dockerfile
+    container_name: data-loader
+    depends_on:
+      - cassandra
+    environment:
+      - CASSANDRA_HOST=cassandra
+      - CASSANDRA_KEYSPACE=imdb_features
+    volumes:
+      - ./data_loader:/app
+      - ./tmdb_dataset_files:/data/imdb_datasets
+    networks:
+      - trendscope-network
+    restart: "no"  # Run once and exit
+
+  # FastAPI Backend
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: backend
+    depends_on:
+      - cassandra
+      - kafka
+      - chromadb
+      - ollama
+    ports:
+      - "8001:8000"
+    environment:
+      - CASSANDRA_HOST=cassandra
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - CHROMA_HOST=chromadb
+      - CHROMA_PORT=8000
+      - OLLAMA_HOST=ollama
+      - OLLAMA_PORT=11434
+      - OLLAMA_MODEL=mistral
+    volumes:
+      - ./backend:/app
+      - ./rag:/app/rag
+    networks:
+      - trendscope-network
+    restart: unless-stopped
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # RAG LAYER (NEW)
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  # ChromaDB - Vector Database for Review Embeddings
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: chromadb
+    ports:
+      - "8000:8000"
+    environment:
+      - ANONYMIZED_TELEMETRY=FALSE
+      - ALLOW_RESET=TRUE
+    volumes:
+      - chroma_data:/chroma/chroma
+    networks:
+      - trendscope-network
+    restart: unless-stopped
+
+  # Ollama - Local LLM Server (Mistral)
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - trendscope-network
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+
+  # Embedding Service - Kafka to ChromaDB
+  embedding-service:
+    build:
+      context: ./rag
+      dockerfile: Dockerfile
+    container_name: embedding-service
+    depends_on:
+      - kafka
+      - chromadb
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - KAFKA_TOPIC_REDDIT=reddit_stream
+      - CHROMA_HOST=chromadb
+      - CHROMA_PORT=8000
+      - EMBEDDING_MODEL=all-MiniLM-L6-v2
+    volumes:
+      - ./rag:/app
+    networks:
+      - trendscope-network
+    restart: unless-stopped
+
 networks:
   trendscope-network:
     driver: bridge
@@ -247,3 +374,5 @@ volumes:
   mlflow_data:
   prometheus_data:
   grafana_data:
+  chroma_data:
+  ollama_data:

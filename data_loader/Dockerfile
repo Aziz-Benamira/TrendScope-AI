@@ -9,5 +9,5 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY . .
 
-# Run the enriched producer
-CMD ["python", "tmdb_producer_enriched.py"]
+# Run the loader
+CMD ["python", "imdb_loader.py"]

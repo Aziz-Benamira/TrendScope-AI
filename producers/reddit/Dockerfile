@@ -9,5 +9,5 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY . .
 
-# Run the producer
+# Run the continuous streaming producer
 CMD ["python", "reddit_producer.py"]

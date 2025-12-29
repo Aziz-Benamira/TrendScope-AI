@@ -9,5 +9,5 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY . .
 
-# Run the ML service
-CMD ["python", "online_ml_service.py"]
+# Run the River ML service
+CMD ["python", "river_predictor.py"]
