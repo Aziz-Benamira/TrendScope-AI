@@ -1,0 +1,10 @@
+# RAG Service dependencies
+sentence-transformers==2.2.2
+chromadb==0.4.22
+httpx==0.26.0
+torch>=2.0.0
+transformers>=4.36.0
+# Reddit and Cassandra integration
+praw>=7.7.0
+cassandra-driver>=3.28.0
+vaderSentiment>=3.3.2

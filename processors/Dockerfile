@@ -15,6 +15,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY . .
 
-USER 1001
+# Set environment variables to fix Kerberos/Hadoop authentication issue
+ENV HADOOP_USER_NAME=spark
+ENV USER=spark
 
 CMD ["python", "spark_streaming_processor.py"]

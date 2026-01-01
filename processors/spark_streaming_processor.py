@@ -58,21 +58,36 @@ class SparkStreamingProcessor:
     def _init_spark(self):
         """Initialize Spark session with required configurations"""
         logger.info("Initializing Spark session...")
-        
-        self.spark = SparkSession.builder \
-            .appName("TrendScope-StreamingProcessor") \
-            .master(self.spark_master) \
-            .config("spark.jars.packages", 
-                   "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0,"
-                   "com.datastax.spark:spark-cassandra-connector_2.12:3.4.1") \
-            .config("spark.cassandra.connection.host", self.cassandra_host) \
-            .config("spark.cassandra.connection.port", self.cassandra_port) \
-            .config("spark.sql.streaming.checkpointLocation", "/tmp/spark-checkpoint") \
-            .config("spark.streaming.stopGracefullyOnShutdown", "true") \
+
+        self.spark = (
+            SparkSession.builder
+            .appName("TrendScope-StreamingProcessor")
+            .master(self.spark_master)
+
+            # 🔑 CRITICAL FIX (Ivy cache location)
+            .config("spark.jars.ivy", "/tmp/.ivy2")
+
+            # Kafka + Cassandra connectors
+            .config(
+                "spark.jars.packages",
+                "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0,"
+                "com.datastax.spark:spark-cassandra-connector_2.12:3.4.1"
+            )
+
+            # Cassandra config
+            .config("spark.cassandra.connection.host", self.cassandra_host)
+            .config("spark.cassandra.connection.port", self.cassandra_port)
+
+            # Streaming config
+            .config("spark.sql.streaming.checkpointLocation", "/tmp/spark-checkpoint")
+            .config("spark.streaming.stopGracefullyOnShutdown", "true")
+
             .getOrCreate()
-        
+        )
+
         self.spark.sparkContext.setLogLevel("WARN")
         logger.info("Spark session initialized successfully")
+
     
     def get_tmdb_schema(self):
         """Define schema for TMDB stream"""
