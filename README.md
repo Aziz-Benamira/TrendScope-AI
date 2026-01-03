@@ -5,6 +5,7 @@
 A comprehensive data streaming and AI platform that combines real-time trend analytics with conversational AI for movie insights.
 
 ---
+![TrendScope-AI ](project.png)
 
 ## 🎯 Overview
 
