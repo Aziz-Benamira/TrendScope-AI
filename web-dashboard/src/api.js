@@ -91,7 +91,8 @@ export const fetchStats = async () => {
       totalMovies: response.data.total_movies || 0,
       avgTrendScore: response.data.avg_trend_score || 0,
       totalPredictions: response.data.total_predictions || 0,
-      modelAccuracy: response.data.model_accuracy || 0
+      modelAccuracy: response.data.model_accuracy || 0,
+      average_sentiment: response.data.average_sentiment || 0
     };
     
   } catch (error) {

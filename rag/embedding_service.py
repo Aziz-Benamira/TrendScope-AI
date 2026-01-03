@@ -53,13 +53,14 @@ class EmbeddingService:
     3. Stores embeddings in ChromaDB for RAG retrieval
     """
     
-    def __init__(self):
+    def __init__(self, skip_kafka=False):
         self.consumer = None
         self.vector_store = None
         self.embedding_model = None
         
         self._init_embedding_model()
-        self._init_kafka()
+        if not skip_kafka:
+            self._init_kafka()
         self._init_vector_store()
         
         self.processed_count = 0
@@ -102,6 +103,10 @@ class EmbeddingService:
     
     def _extract_movie_title(self, message: dict) -> str:
         """Extract movie title from the message"""
+        # If source is TMDB, movie_title is already provided
+        if message.get('source') == 'tmdb':
+            return message.get('movie_title', 'Unknown')
+        
         # Map specific subreddits to show/movie names
         SUBREDDIT_TO_TITLE = {
             'strangerthings': 'Stranger Things',

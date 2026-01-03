@@ -342,7 +342,7 @@ services:
               capabilities: [gpu]
     restart: unless-stopped
 
-  # Embedding Service - Kafka to ChromaDB
+  # Embedding Service - Kafka to ChromaDB (Reddit comments)
   embedding-service:
     build:
       context: ./rag
@@ -357,6 +357,29 @@ services:
       - CHROMA_HOST=chromadb
       - CHROMA_PORT=8000
       - EMBEDDING_MODEL=all-MiniLM-L6-v2
+    volumes:
+      - ./rag:/app
+    networks:
+      - trendscope-network
+    restart: unless-stopped
+
+  # Metadata Enrichment Service - TMDB to ChromaDB (Hybrid RAG)
+  metadata-enrichment:
+    build:
+      context: ./rag
+      dockerfile: Dockerfile
+    container_name: metadata-enrichment
+    depends_on:
+      - kafka
+      - chromadb
+      - tmdb-producer
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - KAFKA_TOPIC_TMDB=tmdb_stream
+      - CHROMA_HOST=chromadb
+      - CHROMA_PORT=8000
+      - EMBEDDING_MODEL=all-MiniLM-L6-v2
+    command: python metadata_enrichment_service.py
     volumes:
       - ./rag:/app
     networks:

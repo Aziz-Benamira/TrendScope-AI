@@ -1,8 +1,59 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User, Loader2, MessageCircle, Clock, Database, Sparkles } from 'lucide-react';
+import { Send, Bot, User, Loader2, MessageCircle, Clock, Database, Sparkles, ChevronDown, ChevronUp } from 'lucide-react';
 import { sendChatQuery, checkChatHealth } from '../api';
 
-const ChatPanel = ({ selectedMovie = null }) => {
+// Expandable Reviews Section Component
+const ReviewsSection = ({ reviews }) => {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const displayCount = isExpanded ? reviews.length : 3;
+  
+  return (
+    <div className="mt-2 space-y-1">
+      <p className="text-xs text-purple-300 font-medium">Sample sources:</p>
+      {reviews.slice(0, displayCount).map((review, i) => (
+        <div key={i} className="text-xs bg-white/5 rounded p-2">
+          <div className="flex items-center gap-2 mb-1">
+            <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] ${
+              review.sentiment === 'positive' ? 'bg-green-500/30 text-green-300' :
+              review.sentiment === 'negative' ? 'bg-red-500/30 text-red-300' :
+              'bg-gray-500/30 text-gray-300'
+            }`}>
+              {review.sentiment}
+            </span>
+            <span className={`text-[10px] px-1.5 py-0.5 rounded ${
+              review.source_type === 'tmdb' 
+                ? 'bg-blue-500/20 text-blue-300' 
+                : 'bg-purple-500/20 text-purple-300'
+            }`}>
+              {review.source_icon || '💬'} {review.source}
+            </span>
+          </div>
+          <span className="text-gray-300">{review.text}</span>
+        </div>
+      ))}
+      {reviews.length > 3 && (
+        <button
+          onClick={() => setIsExpanded(!isExpanded)}
+          className="flex items-center space-x-1 text-xs text-purple-300 hover:text-purple-200 mt-2 transition-colors"
+        >
+          {isExpanded ? (
+            <>
+              <ChevronUp className="w-3 h-3" />
+              <span>Show less</span>
+            </>
+          ) : (
+            <>
+              <ChevronDown className="w-3 h-3" />
+              <span>Show {reviews.length - 3} more comments</span>
+            </>
+          )}
+        </button>
+      )}
+    </div>
+  );
+};
+
+const ChatPanel = ({ selectedMovie = null, setSelectedMovie = null }) => {
   const [messages, setMessages] = useState([
     {
       role: 'assistant',
@@ -35,7 +86,9 @@ const ChatPanel = ({ selectedMovie = null }) => {
   // Pre-fill input when a movie is selected
   useEffect(() => {
     if (selectedMovie) {
-      setInput(`Tell me about ${selectedMovie}`);
+      setInput(`What do people think about ${selectedMovie}`);
+      // Clear selectedMovie after setting input to avoid conflicts
+      setSelectedMovie(null);
     }
   }, [selectedMovie]);
 
@@ -53,7 +106,7 @@ const ChatPanel = ({ selectedMovie = null }) => {
     setIsLoading(true);
 
     try {
-      const result = await sendChatQuery(input, selectedMovie, 24);
+      const result = await sendChatQuery(input, selectedMovie, 168);
       
       const assistantMessage = {
         role: 'assistant',
@@ -94,7 +147,7 @@ const ChatPanel = ({ selectedMovie = null }) => {
   ];
 
   return (
-    <div className="flex flex-col h-full bg-white/5 backdrop-blur-lg rounded-2xl overflow-hidden">
+    <div className="flex flex-col h-[900px] bg-white/5 backdrop-blur-lg rounded-2xl overflow-hidden">
       {/* Header */}
       <div className="p-4 border-b border-white/10 bg-gradient-to-r from-purple-500/20 to-pink-500/20">
         <div className="flex items-center justify-between">
@@ -170,28 +223,14 @@ const ChatPanel = ({ selectedMovie = null }) => {
                         {message.timeRange && (
                           <div className="flex items-center space-x-1">
                             <Clock className="w-3 h-3" />
-                            <span>Last {message.timeRange}h</span>
+                            <span>Last {Math.floor(message.timeRange / 24)} days</span>
                           </div>
                         )}
                       </div>
                       
                       {/* Sample reviews */}
                       {message.sampleReviews && message.sampleReviews.length > 0 && (
-                        <div className="mt-2 space-y-1">
-                          <p className="text-xs text-purple-300 font-medium">Sample sources:</p>
-                          {message.sampleReviews.slice(0, 2).map((review, i) => (
-                            <div key={i} className="text-xs bg-white/5 rounded p-2">
-                              <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] mr-2 ${
-                                review.sentiment === 'positive' ? 'bg-green-500/30 text-green-300' :
-                                review.sentiment === 'negative' ? 'bg-red-500/30 text-red-300' :
-                                'bg-gray-500/30 text-gray-300'
-                              }`}>
-                                {review.sentiment}
-                              </span>
-                              <span className="text-gray-300">{review.text}</span>
-                            </div>
-                          ))}
-                        </div>
+                        <ReviewsSection reviews={message.sampleReviews} />
                       )}
                     </div>
                   )}

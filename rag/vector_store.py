@@ -24,6 +24,7 @@ class VectorStore:
     def __init__(self):
         self.client = None
         self.collection = None
+        self.metadata_collection = None
         self._connect()
     
     def _connect(self, max_retries: int = 10):
@@ -38,14 +39,21 @@ class VectorStore:
                     settings=Settings(anonymized_telemetry=False)
                 )
                 
-                # Get or create collection
+                # Get or create collections
                 self.collection = self.client.get_or_create_collection(
                     name=COLLECTION_NAME,
                     metadata={"hnsw:space": "cosine"}
                 )
                 
+                # Metadata collection for movie/show info from TMDB
+                self.metadata_collection = self.client.get_or_create_collection(
+                    name="movie_metadata",
+                    metadata={"hnsw:space": "cosine"}
+                )
+                
                 logger.info(f"✅ Connected to ChromaDB at {CHROMA_HOST}:{CHROMA_PORT}")
                 logger.info(f"📚 Collection '{COLLECTION_NAME}' ready with {self.collection.count()} documents")
+                logger.info(f"🎬 Collection 'movie_metadata' ready with {self.metadata_collection.count()} documents")
                 return
                 
             except Exception as e:
@@ -196,3 +204,56 @@ class VectorStore:
         except Exception as e:
             logger.error(f"Error getting movies list: {e}")
             return []
+    
+    def add_metadata(self, 
+                     movie_id: str,
+                     title: str,
+                     embedding: List[float],
+                     metadata: Dict) -> bool:
+        """Add movie/show metadata to the metadata collection"""
+        try:
+            self.metadata_collection.upsert(
+                ids=[movie_id],
+                embeddings=[embedding],
+                documents=[title],
+                metadatas=[metadata]
+            )
+            return True
+        except Exception as e:
+            logger.error(f"Error adding metadata for {title}: {e}")
+            return False
+    
+    def get_metadata(self, title: str) -> Optional[Dict]:
+        """Get metadata for a movie/show by title (fuzzy match)"""
+        try:
+            # Search by title similarity
+            results = self.metadata_collection.get(
+                where={"title": title},
+                limit=1,
+                include=["metadatas", "documents"]
+            )
+            
+            if results and results['metadatas']:
+                return results['metadatas'][0]
+            
+            return None
+        except Exception as e:
+            logger.error(f"Error getting metadata for {title}: {e}")
+            return None
+    
+    def search_metadata(self, query_embedding: List[float], n_results: int = 1) -> Optional[Dict]:
+        """Search metadata collection by embedding similarity"""
+        try:
+            results = self.metadata_collection.query(
+                query_embeddings=[query_embedding],
+                n_results=n_results,
+                include=["metadatas", "documents", "distances"]
+            )
+            
+            if results and results['metadatas'] and len(results['metadatas'][0]) > 0:
+                return results['metadatas'][0][0]
+            
+            return None
+        except Exception as e:
+            logger.error(f"Error searching metadata: {e}")
+            return None

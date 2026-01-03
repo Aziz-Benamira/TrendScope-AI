@@ -45,7 +45,7 @@ _trending_cache = {
 # CORS middleware for React frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3002", "http://localhost:5173", "http://localhost:5174"],
+    allow_origins=["http://localhost:3002", "http://localhost:3003", "http://localhost:5173", "http://localhost:5174"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -573,12 +573,21 @@ async def get_stats_summary():
         # Count movies with real Reddit data
         movies_with_reddit = sum(1 for m in trending_movies if m['mentions'] > 0)
         
+        # Calculate average sentiment (convert from 0-1 scale to -1 to 1 scale for display)
+        sentiments = [m.get('sentiment', 0.5) for m in trending_movies]
+        avg_sentiment = sum(sentiments) / len(trending_movies) if trending_movies else 0.5
+        # Convert from 0-1 scale to -1 to 1 scale for sentiment gauge
+        normalized_sentiment = (avg_sentiment * 2) - 1
+        
+        print(f"📊 Sentiment Debug: Raw sentiments: {sentiments[:5]}... Avg: {avg_sentiment:.2f}, Normalized: {normalized_sentiment:.2f}")
+        
         return {
             'total_movies': len(trending_movies),
             'avg_trend_score': round(avg_trend_score, 2),
             'total_predictions': len(trending_movies),
             'model_accuracy': round(avg_accuracy, 2),
-            'movies_with_reddit': movies_with_reddit
+            'movies_with_reddit': movies_with_reddit,
+            'average_sentiment': round(normalized_sentiment, 2)
         }
         
     except Exception as e:
@@ -857,6 +866,113 @@ async def chat_debug(request: ChatRequest):
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Debug error: {str(e)}")
+
+
+@app.get("/api/movies/discussed")
+async def get_discussed_movies(limit: int = 20, hours_back: int = 168):
+    """
+    Get movies that ACTUALLY have Reddit discussions in ChromaDB
+    
+    This endpoint ensures the dashboard only shows movies people are talking about.
+    Returns movies sorted by number of discussions (most talked about first).
+    
+    Parameters:
+    - limit: Max number of movies to return (default 20)
+    - hours_back: Time window in hours (default 168 = 7 days)
+    """
+    rag_service = get_rag_service()
+    
+    if rag_service is None:
+        raise HTTPException(
+            status_code=503, 
+            detail="RAG service is not available."
+        )
+    
+    try:
+        from collections import defaultdict
+        from datetime import datetime, timedelta
+        
+        # Get all reviews from ChromaDB within time window
+        cutoff_time = datetime.utcnow() - timedelta(hours=hours_back)
+        
+        # Query ChromaDB for all recent reviews
+        all_reviews = rag_service.vector_store.collection.get(
+            where={
+                "timestamp": {"$gte": cutoff_time.isoformat()}
+            },
+            include=["metadatas"]
+        )
+        
+        if not all_reviews or not all_reviews.get('metadatas'):
+            return []
+        
+        # Count discussions per movie
+        movie_counts = defaultdict(lambda: {
+            'title': None,
+            'count': 0,
+            'mentions': 0,
+            'sentiment_sum': 0.0,
+            'latest_timestamp': None
+        })
+        
+        for metadata in all_reviews['metadatas']:
+            movie_title = metadata.get('movie_title', '').lower().strip()
+            
+            if not movie_title or movie_title == 'unknown':
+                continue
+            
+            # Aggregate discussion stats
+            movie_counts[movie_title]['title'] = metadata.get('movie_title', movie_title)
+            movie_counts[movie_title]['count'] += 1
+            movie_counts[movie_title]['mentions'] += metadata.get('mentions', 0)
+            movie_counts[movie_title]['sentiment_sum'] += metadata.get('sentiment', 0.5)
+            
+            # Track latest timestamp
+            timestamp = metadata.get('timestamp', '')
+            if not movie_counts[movie_title]['latest_timestamp'] or timestamp > movie_counts[movie_title]['latest_timestamp']:
+                movie_counts[movie_title]['latest_timestamp'] = timestamp
+        
+        # Convert to list and calculate avg sentiment
+        discussed_movies = []
+        for movie_title, stats in movie_counts.items():
+            discussed_movies.append({
+                'title': stats['title'],
+                'discussions': stats['count'],
+                'mentions': stats['mentions'],
+                'sentiment': round(stats['sentiment_sum'] / max(stats['count'], 1), 2),
+                'trendScore': stats['count'] * 10,  # Simple trend score
+                'popularity': stats['mentions'],
+                'timestamp': stats['latest_timestamp'],
+                'releaseDate': 'N/A',  # Will be enriched from metadata if available
+                'voteAverage': 0,
+                'imdbRating': 0
+            })
+        
+        # Try to enrich with metadata from movie_metadata collection
+        for movie in discussed_movies:
+            try:
+                metadata = rag_service.vector_store.get_metadata(movie['title'])
+                if metadata:
+                    movie['releaseDate'] = metadata.get('release_date', 'N/A')
+                    movie['voteAverage'] = metadata.get('vote_average', 0)
+                    movie['imdbRating'] = metadata.get('imdb_rating', 0)
+                    movie['overview'] = metadata.get('overview', '')
+            except:
+                pass
+        
+        # Sort by discussions count (most talked about first)
+        discussed_movies.sort(key=lambda x: x['discussions'], reverse=True)
+        
+        # Return top N
+        result = discussed_movies[:limit]
+        
+        print(f"📊 Found {len(discussed_movies)} movies with discussions. Returning top {len(result)}")
+        
+        return result
+        
+    except Exception as e:
+        print(f"❌ Error getting discussed movies: {e}")
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
 
 
 if __name__ == "__main__":

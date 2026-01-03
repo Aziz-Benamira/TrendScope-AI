@@ -20,11 +20,13 @@ TrendScope-AI is an end-to-end streaming analytics platform that:
 | Feature | Technology | Description |
 |---------|------------|-------------|
 | **Real-time Streaming** | Kafka + Spark | Live data ingestion and processing |
-| **Sentiment Analysis** | VADER | Analyze Reddit discussions |
-| **TrendScore** | Custom Algorithm | Rank movies by popularity + sentiment + mentions |
-| **Vector Search** | ChromaDB | Store and retrieve review embeddings |
-| **RAG Chat** | Ollama + Mistral | Answer natural language questions about movies |
-| **Dashboard** | React + Vite | Beautiful real-time UI |
+| **Sentiment Analysis** | VADER | Analyze Reddit discussions and reviews |
+| **TrendScore Algorithm** | Custom Formula | Rank movies: 50% Popularity + 30% Mentions + 20% Sentiment |
+| **Vector Database** | ChromaDB | 29,365+ review embeddings for semantic search |
+| **RAG Chat Interface** | Ollama + Mistral | Conversational AI with retrieval-augmented generation |
+| **Modern Dashboard** | React + Vite + TailwindCSS | Real-time stats, trending movies, live charts |
+| **Live Statistics** | Dynamic Updates | Track movies, reviews, Reddit activity |
+| **Docker Deployment** | Docker Compose | One-command setup with 11 services |
 
 ---
 
@@ -119,16 +121,9 @@ docker-compose logs -f
 docker exec -it ollama ollama pull mistral
 ```
 
-### 4. Initialize Database
+### 4. Start Frontend (Automatic with Docker Compose)
 
-```bash
-# Create Cassandra schema
-docker exec -it cassandra cqlsh -f /init.cql
-# Or run the Python script
-docker-compose run --rm data-loader python init_cassandra.py
-```
-
-### 5. Start Frontend
+The frontend starts automatically with `docker-compose up`. Alternatively, run manually:
 
 ```bash
 cd web-dashboard
@@ -136,14 +131,24 @@ npm install
 npm run dev
 ```
 
+### 5. Verify System is Running
+
+```bash
+# Check all services are healthy
+docker-compose ps
+
+# Verify data is flowing
+curl http://localhost:8001/api/trending
+```
+
 ### 6. Access the Application
 
 | Service | URL |
 |---------|-----|
-| **Dashboard** | http://localhost:5173 |
+| **Dashboard** | http://localhost:3003 |
 | **API Docs** | http://localhost:8001/docs |
-| **Grafana** | http://localhost:3001 (admin/admin) |
-| **MLflow** | http://localhost:5000 |
+| **Grafana** | http://localhost:3000 (admin/admin) |
+| **Prometheus** | http://localhost:9090 |
 | **Spark UI** | http://localhost:8080 |
 
 ---
@@ -226,15 +231,14 @@ OLLAMA_MODEL=mistral
 |---------|------|-------------|
 | Kafka | 9092 | Message broker |
 | Zookeeper | 2181 | Kafka coordination |
-| Cassandra | 9042 | Trend data storage |
 | ChromaDB | 8000 | Vector database for RAG |
 | Ollama | 11434 | Local LLM server |
 | Backend API | 8001 | FastAPI + RAG endpoints |
-| Frontend | 5173 | React dashboard |
-| Grafana | 3001 | Monitoring dashboards |
-| Prometheus | 9091 | Metrics collection |
-| MLflow | 5000 | ML experiment tracking |
+| Frontend | 3003 | React dashboard |
+| Grafana | 3000 | Monitoring dashboards |
+| Prometheus | 9090 | Metrics collection |
 | Spark Master | 8080 | Spark cluster UI |
+| Embedding Service | 8002 | Review embedding processor |
 
 ---
 
@@ -262,18 +266,40 @@ GET /api/chat/health      # Health check
 
 ---
 
-## 🎓 Academic Context
+## 🎓 Project Submission
 
-This project was developed for the **M2 IPP Data Stream Processing** course.
+This project was developed for academic purposes and includes:
 
-### Theme: Movie Review Analysis (Theme 8)
+### 📦 Submission Materials
 
-**Requirements Addressed:**
+1. **Source Code**: Complete documented codebase
+2. **Docker Deployment**: One-command setup with `docker-compose up`
+3. **Documentation**: 
+   - README.md (this file)
+   - GETTING_STARTED.md (setup guide)
+   - PROJECT_REPORT.tex (academic report)
+   - SUBMISSION_GUIDE.md (submission checklist)
+   - GITHUB_GUIDE.md (repository setup)
+4. **Live Demo**: Fully functional system with 29,365+ indexed reviews
+
+### ✅ Requirements Addressed
+
 - ✅ Real-time streaming (Kafka + Spark)
-- ✅ Sentiment analysis on Reddit reviews
+- ✅ Sentiment analysis on Reddit discussions (VADER)
 - ✅ Vector database for review embeddings (ChromaDB)
-- ✅ RAG function for natural language queries
-- ✅ Time-sensitive retrieval (last 24 hours)
+- ✅ RAG-powered chat with Mistral LLM
+- ✅ TrendScore algorithm for ranking
+- ✅ Modern React dashboard with live charts
+- ✅ Comprehensive monitoring (Prometheus + Grafana)
+
+### 📊 Project Statistics
+
+- **Total Reviews Indexed**: 29,365+
+- **Active Data Sources**: 3 (TMDB API, TMDB Reviews, Reddit)
+- **Tracked Movies**: 51+ trending titles
+- **Services**: 11 Docker containers
+- **Lines of Code**: ~5,000+
+- **RAG Iterations**: 11 documented improvements
 
 ---
 

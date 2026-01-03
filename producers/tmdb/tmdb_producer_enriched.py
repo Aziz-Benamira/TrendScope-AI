@@ -93,28 +93,51 @@ class TMDBProducerEnriched:
     def fetch_from_multiple_sources(self):
         """
         MULTI-SOURCE DISCOVERY: Fetch from multiple TMDB endpoints
-        Combines trending, now playing, and popular for comprehensive coverage
+        Combines trending movies AND TV shows for comprehensive coverage
         """
-        all_movies = []
+        all_content = []
         seen_ids = set()
         
-        # Source 1: Trending (updated hourly)
+        # Source 1: Trending MOVIES (updated hourly)
         try:
             url = f"{self.base_url}/trending/movie/day"
             params = {'api_key': self.api_key}
             response = requests.get(url, params=params, timeout=10)
             response.raise_for_status()
             trending = response.json().get('results', [])
-            logger.info(f"  📈 Trending: {len(trending)} movies")
+            logger.info(f"  📈 Trending Movies: {len(trending)}")
             
-            for movie in trending:
-                movie_id = movie.get('id')
-                if movie_id not in seen_ids:
-                    movie['discovery_source'] = 'trending'
-                    all_movies.append(movie)
-                    seen_ids.add(movie_id)
+            for item in trending:
+                item_id = item.get('id')
+                if item_id not in seen_ids:
+                    item['discovery_source'] = 'trending_movie'
+                    item['media_type'] = 'movie'
+                    all_content.append(item)
+                    seen_ids.add(('movie', item_id))
         except Exception as e:
-            logger.warning(f"Failed to fetch trending: {e}")
+            logger.warning(f"Failed to fetch trending movies: {e}")
+        
+        # Source 1b: Trending TV SHOWS (NEW!)
+        try:
+            url = f"{self.base_url}/trending/tv/day"
+            params = {'api_key': self.api_key}
+            response = requests.get(url, params=params, timeout=10)
+            response.raise_for_status()
+            trending_tv = response.json().get('results', [])
+            logger.info(f"  📺 Trending TV Shows: {len(trending_tv)}")
+            
+            for item in trending_tv:
+                item_id = item.get('id')
+                if item_id not in seen_ids:
+                    item['discovery_source'] = 'trending_tv'
+                    item['media_type'] = 'tv'
+                    # Normalize: use 'title' field for both movies and TV
+                    if 'name' in item and 'title' not in item:
+                        item['title'] = item['name']
+                    all_content.append(item)
+                    seen_ids.add(('tv', item_id))
+        except Exception as e:
+            logger.warning(f"Failed to fetch trending TV: {e}")
         
         # Source 2: Now Playing (most current releases)
         try:
@@ -123,40 +146,63 @@ class TMDBProducerEnriched:
             response = requests.get(url, params=params, timeout=10)
             response.raise_for_status()
             now_playing = response.json().get('results', [])[:10]  # Top 10
-            logger.info(f"  🎬 Now Playing: {len(now_playing)} movies")
+            logger.info(f"  🎬 Now Playing: {len(now_playing)}")
             
             for movie in now_playing:
                 movie_id = movie.get('id')
-                if movie_id not in seen_ids:
+                if ('movie', movie_id) not in seen_ids:
                     movie['discovery_source'] = 'now_playing'
-                    all_movies.append(movie)
-                    seen_ids.add(movie_id)
+                    movie['media_type'] = 'movie'
+                    all_content.append(movie)
+                    seen_ids.add(('movie', movie_id))
         except Exception as e:
             logger.warning(f"Failed to fetch now playing: {e}")
         
-        # Source 3: Popular (high engagement)
+        # Source 2b: Popular TV Shows (NEW!)
+        try:
+            url = f"{self.base_url}/tv/popular"
+            params = {'api_key': self.api_key}
+            response = requests.get(url, params=params, timeout=10)
+            response.raise_for_status()
+            popular_tv = response.json().get('results', [])[:10]  # Top 10
+            logger.info(f"  📺 Popular TV: {len(popular_tv)}")
+            
+            for item in popular_tv:
+                item_id = item.get('id')
+                if ('tv', item_id) not in seen_ids:
+                    item['discovery_source'] = 'popular_tv'
+                    item['media_type'] = 'tv'
+                    if 'name' in item and 'title' not in item:
+                        item['title'] = item['name']
+                    all_content.append(item)
+                    seen_ids.add(('tv', item_id))
+        except Exception as e:
+            logger.warning(f"Failed to fetch popular TV: {e}")
+        
+        # Source 3: Popular Movies (high engagement)
         try:
             url = f"{self.base_url}/movie/popular"
             params = {'api_key': self.api_key}
             response = requests.get(url, params=params, timeout=10)
             response.raise_for_status()
             popular = response.json().get('results', [])[:5]  # Top 5
-            logger.info(f"  ⭐ Popular: {len(popular)} movies")
+            logger.info(f"  ⭐ Popular Movies: {len(popular)}")
             
             for movie in popular:
                 movie_id = movie.get('id')
-                if movie_id not in seen_ids:
+                if ('movie', movie_id) not in seen_ids:
                     movie['discovery_source'] = 'popular'
-                    all_movies.append(movie)
-                    seen_ids.add(movie_id)
+                    movie['media_type'] = 'movie'
+                    all_content.append(movie)
+                    seen_ids.add(('movie', movie_id))
         except Exception as e:
             logger.warning(f"Failed to fetch popular: {e}")
         
         # Rank by freshness and relevance
-        all_movies = self.rank_by_freshness(all_movies)
+        all_content = self.rank_by_freshness(all_content)
         
-        logger.info(f"✓ Multi-source discovery: {len(all_movies)} unique movies")
-        return all_movies[:20]  # Return top 20
+        logger.info(f"✓ Multi-source discovery: {len(all_content)} unique movies+TV shows")
+        return all_content[:20]  # Return top 20
     
     def rank_by_freshness(self, movies):
         """Rank movies by release date and popularity"""
@@ -195,10 +241,11 @@ class TMDBProducerEnriched:
         """
         return self.fetch_from_multiple_sources()
     
-    def fetch_movie_credits(self, movie_id):
-        """Fetch cast and crew for a movie"""
+    def fetch_movie_credits(self, movie_id, media_type='movie'):
+        """Fetch cast and crew for a movie or TV show"""
         try:
-            url = f"{self.base_url}/movie/{movie_id}/credits"
+            # Use correct endpoint based on media type
+            url = f"{self.base_url}/{media_type}/{movie_id}/credits"
             params = {'api_key': self.api_key}
             
             response = requests.get(url, params=params, timeout=10)
@@ -210,17 +257,48 @@ class TMDBProducerEnriched:
             cast = data.get('cast', [])[:3]
             cast_names = [person.get('name') for person in cast]
             
-            # Get director
+            # Get director (for movies) or creator (for TV)
             crew = data.get('crew', [])
-            directors = [person.get('name') for person in crew if person.get('job') == 'Director']
+            if media_type == 'movie':
+                directors = [person.get('name') for person in crew if person.get('job') == 'Director']
+            else:
+                # For TV, get creators from the show data (not in credits)
+                directors = []
             
             return {
                 'cast': cast_names,
                 'directors': directors
             }
         except requests.RequestException as e:
-            logger.error(f"Error fetching credits for movie {movie_id}: {e}")
+            logger.error(f"Error fetching credits for {media_type} {movie_id}: {e}")
             return {'cast': [], 'directors': []}
+    
+    def fetch_movie_reviews(self, movie_id, media_type='movie'):
+        """Fetch TMDB reviews for a movie or TV show"""
+        try:
+            url = f"{self.base_url}/{media_type}/{movie_id}/reviews"
+            params = {'api_key': self.api_key, 'language': 'en-US', 'page': 1}
+            
+            response = requests.get(url, params=params, timeout=10)
+            response.raise_for_status()
+            
+            data = response.json()
+            reviews = []
+            
+            # Get up to 10 reviews (TMDB reviews are longer and more detailed)
+            for review in data.get('results', [])[:10]:
+                reviews.append({
+                    'author': review.get('author', 'Anonymous'),
+                    'rating': review.get('author_details', {}).get('rating'),
+                    'content': review.get('content', ''),
+                    'created_at': review.get('created_at', ''),
+                    'source': 'tmdb'
+                })
+            
+            return reviews
+        except requests.RequestException as e:
+            logger.error(f"Error fetching reviews for {media_type} {movie_id}: {e}")
+            return []
     
     def scrape_imdb_live(self, title, year):
         """
@@ -447,9 +525,27 @@ class TMDBProducerEnriched:
                     title = movie.get('title', 'Unknown')
                     logger.info(f"\n[{idx}/{len(movies)}] Processing: {title}")
                     
-                    # Get credits (cast/director)
+                    # Get credits (cast/director) - handle both movies and TV shows
                     movie_id = movie.get('id')
-                    credits = self.fetch_movie_credits(movie_id) if movie_id else {'cast': [], 'directors': []}
+                    media_type = movie.get('media_type', 'movie')  # Get media type
+                    credits = self.fetch_movie_credits(movie_id, media_type) if movie_id else {'cast': [], 'directors': []}
+                    
+                    # Fetch TMDB reviews for this movie/show
+                    reviews = self.fetch_movie_reviews(movie_id, media_type) if movie_id else []
+                    if reviews:
+                        logger.info(f"  📝 Found {len(reviews)} TMDB reviews")
+                        # Publish each review to reddit_stream (same topic as Reddit comments)
+                        for review in reviews:
+                            review_message = {
+                                'movie_title': title,
+                                'text': review['content'],
+                                'author': review['author'],
+                                'score': review['rating'] or 5,  # Use rating as score (default 5/10)
+                                'source': 'tmdb',
+                                'created_at': review['created_at'],
+                                'timestamp': datetime.utcnow().isoformat()
+                            }
+                            self.publish_to_kafka('reddit_stream', review_message)
                     
                     # Enrich with IMDb data
                     imdb_data = self.enrich_with_imdb(movie)

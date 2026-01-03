@@ -1,16 +1,18 @@
 """
 Reddit Producer - Streams comments/posts from r/movies and publishes to Kafka
+Enhanced with targeted search for TMDB trending movies
 """
 import os
 import json
 import time
 import logging
 import praw
-from kafka import KafkaProducer
+from kafka import KafkaProducer, KafkaConsumer
 from kafka.errors import KafkaError
 from datetime import datetime
 import colorlog
 import re
+from threading import Thread
 
 # Configure logging
 handler = colorlog.StreamHandler()
@@ -48,9 +50,13 @@ class RedditProducer:
         
         self.reddit = None
         self.producer = None
+        self.tmdb_consumer = None
+        self.trending_movies = set()  # Cache of trending movie titles
+        self.last_search_time = {}  # Track when we last searched for each movie
         
         self._connect_reddit()
         self._connect_kafka()
+        self._connect_tmdb_consumer()
     
     def _connect_reddit(self):
         """Initialize Reddit API client"""
@@ -87,6 +93,23 @@ class RedditProducer:
                 time.sleep(5)
         
         raise Exception("Could not connect to Kafka after maximum retries")
+    
+    def _connect_tmdb_consumer(self):
+        """Initialize Kafka consumer to listen for TMDB trending movies"""
+        try:
+            self.tmdb_consumer = KafkaConsumer(
+                'tmdb_stream',
+                bootstrap_servers=self.kafka_servers.split(','),
+                value_deserializer=lambda m: json.loads(m.decode('utf-8')),
+                auto_offset_reset='earliest',  # Read all messages from beginning
+                enable_auto_commit=True,
+                group_id='reddit_targeted_search_v2',  # Changed group to read from start
+                consumer_timeout_ms=5000  # Longer timeout
+            )
+            logger.info("✓ Connected to TMDB stream for targeted search")
+        except Exception as e:
+            logger.warning(f"Could not connect to TMDB stream: {e}. Will skip targeted search.")
+            self.tmdb_consumer = None
     
     def extract_movie_mentions(self, text):
         """Extract potential movie mentions from text"""
@@ -220,15 +243,134 @@ class RedditProducer:
         except Exception as e:
             logger.error(f"Error fetching hot posts: {e}")
     
+    def search_reddit_for_movie(self, movie_title):
+        """Search Reddit for discussions about a specific movie"""
+        try:
+            # Don't search too frequently for the same movie
+            if movie_title in self.last_search_time:
+                time_since_last = time.time() - self.last_search_time[movie_title]
+                if time_since_last < 600:  # 10 minutes cooldown
+                    return
+            
+            self.last_search_time[movie_title] = time.time()
+            
+            logger.info(f"🔍 Searching Reddit for: {movie_title}")
+            
+            # Search across all subreddits
+            subreddit = self.reddit.subreddit(self.subreddit_name)
+            published_count = 0
+            
+            # Search posts
+            for post in subreddit.search(movie_title, time_filter='week', limit=10):
+                try:
+                    transformed_data = self.transform_post_data(post)
+                    # Mark as targeted search result
+                    transformed_data['targeted_search'] = True
+                    transformed_data['search_query'] = movie_title
+                    
+                    if self.publish_to_kafka(transformed_data):
+                        published_count += 1
+                        
+                        # Also get top comments from the post
+                        post.comment_limit = 10
+                        post.comments.replace_more(limit=0)
+                        for comment in post.comments[:10]:
+                            try:
+                                comment_data = self.transform_comment_data(comment)
+                                comment_data['targeted_search'] = True
+                                comment_data['search_query'] = movie_title
+                                if self.publish_to_kafka(comment_data):
+                                    published_count += 1
+                            except:
+                                continue
+                                
+                except Exception as e:
+                    logger.debug(f"Error processing search result: {e}")
+                    continue
+            
+            if published_count > 0:
+                logger.info(f"✅ Found {published_count} Reddit discussions for '{movie_title}'")
+            else:
+                logger.warning(f"⚠️ No Reddit discussions found for '{movie_title}'")
+                
+        except Exception as e:
+            logger.error(f"Error searching for movie {movie_title}: {e}")
+    
+    def monitor_tmdb_stream(self):
+        """Monitor TMDB stream and search Reddit for new trending movies"""
+        if not self.tmdb_consumer:
+            logger.warning("TMDB consumer not available. Skipping targeted search.")
+            return
+        
+        logger.info("🎬 Starting TMDB stream monitoring for targeted Reddit search")
+        
+        while True:
+            try:
+                # Poll for new TMDB movies (non-blocking)
+                messages = self.tmdb_consumer.poll(timeout_ms=1000)
+                
+                for topic_partition, records in messages.items():
+                    for record in records:
+                        try:
+                            movie_data = record.value
+                            movie_title = movie_data.get('title', '').strip()
+                            
+                            if movie_title and movie_title not in self.trending_movies:
+                                self.trending_movies.add(movie_title)
+                                logger.info(f"🎯 New trending movie detected: {movie_title}")
+                                
+                                # Search Reddit for this movie
+                                self.search_reddit_for_movie(movie_title)
+                                
+                        except Exception as e:
+                            logger.error(f"Error processing TMDB message: {e}")
+                            continue
+                
+                time.sleep(1)  # Small delay between polls
+                
+            except Exception as e:
+                logger.error(f"Error in TMDB monitor loop: {e}")
+                time.sleep(5)
+    
+    def periodic_targeted_search(self):
+        """Periodically re-search for trending movies to keep data fresh"""
+        logger.info("🔄 Starting periodic targeted search thread")
+        
+        while True:
+            try:
+                time.sleep(300)  # Every 5 minutes
+                
+                if self.trending_movies:
+                    logger.info(f"🔍 Refreshing search for {len(self.trending_movies)} trending movies")
+                    for movie_title in list(self.trending_movies):
+                        self.search_reddit_for_movie(movie_title)
+                        time.sleep(2)  # Rate limiting
+                        
+            except Exception as e:
+                logger.error(f"Error in periodic search: {e}")
+                time.sleep(60)
+    
     def run(self):
-        """Main producer loop"""
-        logger.info("Starting Reddit Producer")
+        """Main producer loop with targeted search"""
+        logger.info("🚀 Starting Enhanced Reddit Producer with Targeted Search")
         
         try:
             # Initial fetch of hot posts
             self.fetch_hot_posts()
             
-            # Start streaming comments
+            # Start TMDB monitoring thread
+            if self.tmdb_consumer:
+                tmdb_thread = Thread(target=self.monitor_tmdb_stream, daemon=True)
+                tmdb_thread.start()
+                logger.info("✓ TMDB monitoring thread started")
+                
+                # Start periodic search thread
+                search_thread = Thread(target=self.periodic_targeted_search, daemon=True)
+                search_thread.start()
+                logger.info("✓ Periodic search thread started")
+            
+            # Start streaming comments from general subreddits
+            logger.info("📡 Starting comment stream...")
             self.stream_comments()
             
         except KeyboardInterrupt:
@@ -241,6 +383,9 @@ class RedditProducer:
                 self.producer.flush()
                 self.producer.close()
                 logger.info("Kafka producer closed")
+            if self.tmdb_consumer:
+                self.tmdb_consumer.close()
+                logger.info("TMDB consumer closed")
 
 
 if __name__ == "__main__":

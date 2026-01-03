@@ -1,9 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { TrendingUp, Film, Brain, Activity, Zap, Star, MessageCircle } from 'lucide-react';
+import { TrendingUp, Film, Brain, Activity, Zap, Star, MessageCircle, MessageSquare, Database } from 'lucide-react';
 import TrendChart from './components/TrendChart';
 import MovieCard from './components/MovieCard';
 import StatsCard from './components/StatsCard';
-import PredictionChart from './components/PredictionChart';
 import SentimentGauge from './components/SentimentGauge';
 import MovieSearch from './components/MovieSearch';
 import ChatPanel from './components/ChatPanel';
@@ -86,23 +85,23 @@ function App() {
           loading={loading}
         />
         <StatsCard
-          icon={<TrendingUp className="w-6 h-6" />}
-          title="Avg TrendScore"
-          value={stats.avgTrendScore.toFixed(1)}
+          icon={<MessageSquare className="w-6 h-6" />}
+          title="Total Reviews"
+          value="19,023+"
           color="purple"
           loading={loading}
         />
         <StatsCard
-          icon={<Brain className="w-6 h-6" />}
-          title="Predictions Made"
-          value={stats.totalPredictions}
+          icon={<Database className="w-6 h-6" />}
+          title="Active Sources"
+          value="3"
           color="pink"
           loading={loading}
         />
         <StatsCard
-          icon={<Zap className="w-6 h-6" />}
-          title="Model Accuracy"
-          value={`${stats.modelAccuracy.toFixed(1)}%`}
+          icon={<MessageCircle className="w-6 h-6" />}
+          title="Reddit Activity"
+          value={`${stats.movies_with_reddit || 0}/${stats.totalMovies}`}
           color="green"
           loading={loading}
         />
@@ -117,12 +116,12 @@ function App() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
         {/* Trending Movies List */}
         <div className="lg:col-span-1">
-          <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-6 shadow-2xl">
+          <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-6 shadow-2xl h-[900px] flex flex-col">
             <div className="flex items-center space-x-2 mb-4">
               <Star className="w-6 h-6 text-yellow-400" />
               <h2 className="text-2xl font-bold text-white">Top Trending</h2>
             </div>
-            <div className="space-y-4 max-h-[600px] overflow-y-auto pr-2">
+            <div className="space-y-4 flex-1 overflow-y-auto pr-2">
               {loading ? (
                 [...Array(5)].map((_, i) => (
                   <div key={i} className="animate-pulse bg-white/5 h-24 rounded-xl"></div>
@@ -150,8 +149,8 @@ function App() {
 
         {/* RAG Chat Panel */}
         <div className="lg:col-span-2">
-          <div className="h-[700px]">
-            <ChatPanel selectedMovie={selectedMovie} />
+          <div className="h-[900px] mb-8">
+            <ChatPanel selectedMovie={selectedMovie} setSelectedMovie={setSelectedMovie} />
           </div>
         </div>
       </div>
@@ -165,31 +164,6 @@ function App() {
             TrendScore Timeline
           </h2>
           <TrendChart data={trendingMovies} loading={loading} />
-        </div>
-
-        {/* Prediction Chart */}
-        <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-6 shadow-2xl">
-          <h2 className="text-2xl font-bold text-white mb-4 flex items-center">
-            <Brain className="w-6 h-6 mr-2" />
-            ML Predictions vs Actual
-          </h2>
-          <PredictionChart data={predictions} loading={loading} />
-        </div>
-      </div>
-
-      {/* Sentiment Section */}
-      <div className="mb-8">
-        <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-6 shadow-2xl">
-          <h2 className="text-2xl font-bold text-white mb-4">
-            Overall Sentiment
-          </h2>
-          <SentimentGauge 
-            sentiment={trendingMovies.length > 0 
-              ? trendingMovies.reduce((acc, m) => acc + (m.sentiment || 0), 0) / trendingMovies.length 
-              : 0
-            }
-            loading={loading}
-          />
         </div>
       </div>
 
